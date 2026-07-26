@@ -5,6 +5,15 @@ import {
   differenceInPolicyDays,
   truncateFactor
 } from "./calculations";
+import {
+  formatNumberInput,
+  initialFormState,
+  isNumericText,
+  parseAmount,
+  PREMIUM_CHARACTER_ERROR,
+  sanitizeNumericInput,
+  validateForm
+} from "../App";
 
 // Hostile-input suite. Diagnostic only: documents current behavior at the edges.
 // Every engine test asserts a correct result or an explicit thrown error — never
@@ -321,45 +330,9 @@ describe("factor boundaries (extends the float-underflow guard)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Parse layer. parseAmount and sanitizeNumericInput are private to App.tsx,
-// which this diagnostic session must not modify. The copies below are verbatim
-// mirrors; the integrity test asserts App.tsx still contains this exact source,
-// so any drift fails loudly instead of silently testing a stale copy.
+// Parse layer. These are the REAL functions imported from App.tsx — not
+// mirrored copies.
 // ---------------------------------------------------------------------------
-
-const PARSE_AMOUNT_SOURCE = `function parseAmount(value: string): number {
-  if (value.trim() === "") {
-    return 0;
-  }
-
-  return Number(value);
-}`;
-
-const SANITIZE_SOURCE = `function sanitizeNumericInput(value: string): string {
-  const cleaned = value.replace(/[^\\d.]/g, "");
-  const firstDot = cleaned.indexOf(".");
-  if (firstDot === -1) {
-    return cleaned;
-  }
-  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\\./g, "");
-}`;
-
-function parseAmount(value: string): number {
-  if (value.trim() === "") {
-    return 0;
-  }
-
-  return Number(value);
-}
-
-function sanitizeNumericInput(value: string): string {
-  const cleaned = value.replace(/[^\d.]/g, "");
-  const firstDot = cleaned.indexOf(".");
-  if (firstDot === -1) {
-    return cleaned;
-  }
-  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, "");
-}
 
 // The premium field's exact input path (App.tsx wires sanitizeNumericInput into
 // onChange for premium only; MEP and fees fields store raw text).
@@ -367,29 +340,27 @@ function uiPremiumPipeline(pasted: string): number {
   return parseAmount(sanitizeNumericInput(pasted));
 }
 
-describe("parse layer (mirrored from App.tsx)", () => {
-  it("mirrors are verbatim copies of the App.tsx source", async () => {
-    // No @types/node in this repo; a computed specifier keeps tsc from trying
-    // to resolve the module while vitest's node runtime imports it fine.
-    const fs = (await import("node:" + "fs")) as unknown as {
-      readFileSync: (path: URL, encoding: "utf8") => string;
-    };
-    const appSource = fs.readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+// The premium field's exact validation path: what onChange stores is exactly
+// what validateForm sees. hasErrors then gates the compute memo in App.tsx, so
+// a field with an error here never reaches parseAmount at all.
+function premiumError(typed: string): string | undefined {
+  return validateForm({ ...initialFormState, depositPremium: sanitizeNumericInput(typed) }).depositPremium;
+}
 
-    expect(appSource).toContain(PARSE_AMOUNT_SOURCE);
-    expect(appSource).toContain(SANITIZE_SOURCE);
-  });
-
+describe("parse layer (real App.tsx functions)", () => {
   it("strips commas: \"1,000\" parses to 1000", () => {
     expect(uiPremiumPipeline("1,000")).toBe(1000);
+    expect(premiumError("1,000")).toBeUndefined();
   });
 
   it("strips currency symbols: \"$1000\" parses to 1000", () => {
     expect(uiPremiumPipeline("$1000")).toBe(1000);
+    expect(premiumError("$1000")).toBeUndefined();
   });
 
   it("strips surrounding whitespace: \" 1000 \" parses to 1000", () => {
     expect(uiPremiumPipeline(" 1000 ")).toBe(1000);
+    expect(premiumError(" 1000 ")).toBeUndefined();
   });
 
   it("empty string parses to 0", () => {
@@ -398,28 +369,72 @@ describe("parse layer (mirrored from App.tsx)", () => {
     expect(uiPremiumPipeline("")).toBe(0);
   });
 
-  it("documents the scientific-notation corruption: \"1e5\" currently becomes 15", () => {
-    // BUG (HANDOFF.md item 3): the sanitizer strips the "e", so a pasted
-    // $100,000 silently becomes $15. This test pins today's broken value so the
-    // corruption is visible; the it.fails test below asserts the correct one.
-    expect(sanitizeNumericInput("1e5")).toBe("15");
-    expect(uiPremiumPipeline("1e5")).toBe(15);
+  it("rejects scientific notation instead of corrupting it", () => {
+    // Was: the sanitizer deleted the "e" and a pasted $100,000 became $15
+    // (HANDOFF.md item 3). Now nothing is deleted, so nothing is corrupted.
+    expect(sanitizeNumericInput("1e5")).toBe("1e5");
+    expect(isNumericText("1e5")).toBe(false);
+    expect(premiumError("1e5")).toBe(PREMIUM_CHARACTER_ERROR);
   });
 
-  it.fails("\"1e5\" must parse to 100000, never silently corrupt", () => {
-    // Correct behavior per HANDOFF.md: parse correctly or reject loudly, never
-    // mangle. If the fix rejects instead of parsing, update this assertion.
-    expect(uiPremiumPipeline("1e5")).toBe(100000);
+  it("a rejected premium is never computed and is never rewritten", () => {
+    const stored = sanitizeNumericInput("1e5");
+    const errors = validateForm({ ...initialFormState, depositPremium: stored });
+
+    expect(stored).toBe("1e5"); // the user's own text — not "15", not 100000
+    expect(Object.keys(errors).length).toBeGreaterThan(0); // hasErrors -> parseAmount never runs
+    expect(formatNumberInput(stored)).toBe("1e5"); // the display doesn't mutate it either
   });
 
-  it("Number() was never the problem — raw parseAmount handles \"1e5\"", () => {
+  it("does not silently reinterpret 1e5 as 100000 either", () => {
+    // The decision: reject, don't parse. parseAmount itself still understands
+    // exponents fine — it simply never sees this input (see the gate above).
+    expect(premiumError("1e5")).not.toBeUndefined();
     expect(parseAmount("1e5")).toBe(100000);
   });
 
-  it("raw parseAmount yields NaN for \"1,000\", which the engine then rejects", () => {
-    // MEP and fees fields skip the sanitizer; a comma there produces NaN, and
-    // the engine's normalizeMoney guard throws rather than computing (see the
-    // NaN premium test above).
+  it("rejects other value-ambiguous characters rather than deleting them", () => {
+    // Each of these was silently mangled by the old strip-everything sanitizer:
+    // "-500" -> "500" (sign flip), "1.2.3" -> "1.23", "10k" -> "10".
+    for (const hostile of ["-500", "+500", "1.2.3", "10k", "1E5", "10 00", "(500)"]) {
+      expect(isNumericText(sanitizeNumericInput(hostile))).toBe(false);
+      expect(premiumError(hostile)).toBe(PREMIUM_CHARACTER_ERROR);
+    }
+    expect(sanitizeNumericInput("-500")).not.toBe("500");
+    expect(sanitizeNumericInput("1.2.3")).not.toBe("1.23");
+  });
+
+  it("the rejection message tells the user what to type instead", () => {
+    // Guards against a future reword into something useless.
+    expect(PREMIUM_CHARACTER_ERROR).toMatch(/plain digits/);
+    expect(PREMIUM_CHARACTER_ERROR).toMatch(/100000/);
+  });
+
+  it("the display transform round-trips every value it accepts", () => {
+    // formatNumberInput -> sanitizeNumericInput is the exact keystroke loop;
+    // if it isn't the identity on stored text, typing rewrites the number.
+    for (const stored of ["", "0", "1000", "1234567", "1000.", ".5", "1234.5678", "1e5000"]) {
+      expect(sanitizeNumericInput(formatNumberInput(stored))).toBe(stored);
+    }
+    expect(formatNumberInput("1234567")).toBe("1,234,567"); // grouping still works
+    expect(formatNumberInput("1e5000")).toBe("1e5000"); // guarded: not "1e5,000"
+  });
+
+  it("empty premium still asks for a value", () => {
+    expect(uiPremiumPipeline("")).toBe(0);
+    expect(premiumError("")).toBe("Enter the risk premium.");
+  });
+
+  it("Number() was never the problem — raw parseAmount handles \"1e5\"", () => {
+    // Unchanged: the fix is the gate in validateForm, not the parser. Premium
+    // input can no longer reach this call path — see the rejection tests above.
+    expect(parseAmount("1e5")).toBe(100000);
+  });
+
+  it("raw parseAmount yields NaN for \"1,000\", which validateForm then rejects", () => {
+    // MEP and fees fields skip the sanitizer; a comma there produces NaN, which
+    // validateForm's range checks catch directly (the engine's normalizeMoney
+    // guard is a backstop, not the first line of defense).
     expect(Number.isNaN(parseAmount("1,000"))).toBe(true);
   });
 });

@@ -14,7 +14,7 @@ import type {
 const DISCLAIMER =
   "For estimate and audit support only. Final premium return depends on policy wording, endorsements, fees, taxes, filings, billing rules, and applicable law.";
 
-interface FormState {
+export interface FormState {
   policyEffectiveDate: string;
   policyExpirationDate: string;
   cancellationEffectiveDate: string;
@@ -26,7 +26,7 @@ interface FormState {
   triaTier: TriaTier;
 }
 
-const initialFormState: FormState = {
+export const initialFormState: FormState = {
   policyEffectiveDate: "2026-01-01",
   policyExpirationDate: "2027-01-01",
   cancellationEffectiveDate: "2026-07-01",
@@ -43,7 +43,26 @@ type CopyTarget = "summary" | "note";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-function validateForm(form: FormState): FieldErrors {
+// Unambiguous FORMATTING: a currency symbol, thousands separators, and surrounding
+// whitespace carry no magnitude and no sign, so a value has exactly one honest
+// reading with them removed. Commas are also our own output — formatNumberInput
+// re-inserts them and the browser returns them on the next keystroke.
+const FORMATTING_NOISE = /[$,]/g;
+
+// Digits with at most one decimal point. Anything else — "e"/"E", letters, signs,
+// a second ".", interior spaces — creates VALUE AMBIGUITY. Ambiguity must interrupt
+// the user, never be guessed at: stripping the "e" from a pasted "1e5" silently
+// turned $100,000 into $15.
+const NUMERIC_TEXT = /^\d*\.?\d*$/;
+
+export function isNumericText(value: string): boolean {
+  return NUMERIC_TEXT.test(value);
+}
+
+export const PREMIUM_CHARACTER_ERROR =
+  "Risk premium must be plain digits — e.g. 100000 or 1234.56. Scientific notation, signs, and letters aren't accepted.";
+
+export function validateForm(form: FormState): FieldErrors {
   const errors: FieldErrors = {};
   const eff = form.policyEffectiveDate;
   const exp = form.policyExpirationDate;
@@ -73,6 +92,8 @@ function validateForm(form: FormState): FieldErrors {
   const premium = form.depositPremium.trim();
   if (premium === "") {
     errors.depositPremium = "Enter the risk premium.";
+  } else if (!isNumericText(premium)) {
+    errors.depositPremium = PREMIUM_CHARACTER_ERROR;
   } else if (!Number.isFinite(Number(premium)) || Number(premium) < 0) {
     errors.depositPremium = "Risk premium must be a non-negative number.";
   }
@@ -611,7 +632,7 @@ function buildSummaryText(form: FormState, result: CalculationResult): string {
   return lines.join("\n");
 }
 
-function parseAmount(value: string): number {
+export function parseAmount(value: string): number {
   if (value.trim() === "") {
     return 0;
   }
@@ -619,20 +640,19 @@ function parseAmount(value: string): number {
   return Number(value);
 }
 
-// Keep only digits and a single decimal point (stored without commas).
-function sanitizeNumericInput(value: string): string {
-  const cleaned = value.replace(/[^\d.]/g, "");
-  const firstDot = cleaned.indexOf(".");
-  if (firstDot === -1) {
-    return cleaned;
-  }
-  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, "");
+// Strip unambiguous formatting and NOTHING else. Anything left that isn't
+// digits-and-one-dot is preserved verbatim so validateForm can reject it with a
+// visible message — stripping it and proceeding is what turned "1e5" into 15.
+export function sanitizeNumericInput(value: string): string {
+  return value.trim().replace(FORMATTING_NOISE, "");
 }
 
-// Display the stored numeric string with thousands separators.
-function formatNumberInput(raw: string): string {
-  if (raw === "") {
-    return "";
+// Display the stored numeric string with thousands separators. Text that failed
+// validation is echoed back verbatim — grouping it would rewrite the user's own
+// input (e.g. "1e5000" -> "1e5,000"), mutating the very text we refused to mutate.
+export function formatNumberInput(raw: string): string {
+  if (!isNumericText(raw)) {
+    return raw;
   }
   const [intPart, ...rest] = raw.split(".");
   const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
