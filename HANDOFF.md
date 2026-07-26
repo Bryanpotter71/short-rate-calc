@@ -5,7 +5,7 @@ Kept intentionally generic: no carrier names, insured names, policy numbers, cus
 documents, or proprietary rules.
 
 ## Current state (verified 2026-07-23)
-- `npm run build` ✅ passes · `npm test` ✅ 12/12 passing
+- `npm run build` ✅ passes · `npm test` ✅ 46/46 passing
 - Calculation engine validated to the dollar against regression examples A, B, C, D1, D2.
 - App code: `src/App.tsx` (UI), `src/lib/calculations.ts` (math), `src/lib/calculations.test.ts` (tests)
 
@@ -39,8 +39,9 @@ npm run build    # type-check + production build
    failure mode has already cost one full revision cycle.
 2. **MEP coupling fix** — MEP eligibility must key off cancellation type, not the
    calculation-method preset.
-3. **Input sanitizer** — currently silently corrupts pasted values like scientific
-   notation; should reject loudly or parse correctly, never mangle silently.
+3. ~~**Input sanitizer**~~ **CLOSED (124199f)** — previously silently corrupted pasted
+   values like scientific notation; now rejects value-ambiguous input loudly via
+   `isNumericText`/`validateForm` in `App.tsx` instead of mangling it.
 4. **gh-pages hygiene** — a settings file on the public `gh-pages` branch contains an
    identifying domain and local path info; scrub it.
 5. **Consolidation** — a separate local prototype (~/Documents/Codex/2026-06-16/
@@ -56,6 +57,8 @@ npm run build    # type-check + production build
   improvise a substitute or proceed on assumptions.
 
 ## Notes
+- Pre-124199f suite tested mirrored copies of the functions, not the exports; green runs
+  before this commit validated duplicates.
 - Don't reintroduce a `tsc -b` project reference — build uses a plain `tsc` type-check; Vite bundles.
 - Keep this repo OUT of iCloud-synced folders (e.g. ~/Documents) — sync duplicates
   `node_modules` files (`name 2/`) and breaks the TypeScript build. Lives in ~/Projects.
