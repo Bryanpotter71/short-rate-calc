@@ -42,15 +42,23 @@ npm run build    # type-check + production build
 3. ~~**Input sanitizer**~~ **CLOSED (124199f)** — previously silently corrupted pasted
    values like scientific notation; now rejects value-ambiguous input loudly via
    `isNumericText`/`validateForm` in `App.tsx` instead of mangling it.
-4. **gh-pages hygiene** — a settings file on the public `gh-pages` branch contains an
-   identifying domain and local path info; scrub it.
-5. **Consolidation** — a separate local prototype (~/Documents/Codex/2026-06-16/
-   can-you-recall-the-short-rate) has a review workflow, assumptions panel, copy-summary,
-   sample loaders, and an AP/RP UI shell. Evaluate for porting UI patterns only — its calc
-   logic was built without validated examples and must not be trusted or merged as-is.
+4. ~~**gh-pages hygiene**~~ **RESOLVED 2026-07-28** — The `gh-pages` branch no longer
+   exists on origin (`git ls-remote --heads origin` returns only `refs/heads/main`).
+   Deployment runs GitHub Actions → Pages artifact; no branch is served. The settings
+   file that exposed an identifying domain and local paths was deleted with the branch.
+   Live site verified serving the current build — sanitizer rejection renders for `1e5`
+   on the deployed URL, 2026-07-28. No further action.
+5. ~~**Consolidation**~~ **CLOSED (2026-07-26)** — codex-aprp-prototype (36bf0f7): 6 commits
+   recovered from the Codex working copy (5 original + 1 adding previously-untracked
+   docs/config; `.claude/settings.local.json` gitignored, not committed — contained local
+   machine paths). Grepped clean of carrier name/domain, insured, and credential references.
+   Has a review workflow, assumptions panel, copy-summary, sample loaders, and an AP/RP UI
+   shell. Evaluate for porting UI patterns only — calc logic (`apRp.ts`, `reviewWorkflow.ts`)
+   remains UNVALIDATED and must never be merged as-is. Documents copy deleted.
 
 ## Rules for agents working in this repo
-- The 12 regression tests are the correctness floor. All must pass before any merge.
+- The full test suite — 46 tests (12 engine regression + 34 adversarial input/integration) —
+  is the correctness floor. All must pass before any merge.
 - If this file conflicts with `calculations.ts` + its passing tests, the code + tests win —
   then fix this file.
 - If a referenced file, branch, or example doesn't exist, STOP and report. Do not
@@ -62,3 +70,6 @@ npm run build    # type-check + production build
 - Don't reintroduce a `tsc -b` project reference — build uses a plain `tsc` type-check; Vite bundles.
 - Keep this repo OUT of iCloud-synced folders (e.g. ~/Documents) — sync duplicates
   `node_modules` files (`name 2/`) and breaks the TypeScript build. Lives in ~/Projects.
+- `vite.config.ts` base is conditional: `process.env.GITHUB_ACTIONS ? "/short-rate-calc/" : "/"`.
+  Pages (Actions) needs the subpath; Vercel serves from root. Do not collapse to a static
+  value — it breaks whichever deploy target isn't the one you tested.
