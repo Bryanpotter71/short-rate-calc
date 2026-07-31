@@ -4,8 +4,10 @@ A generic E&S cancellation / return-premium calculator. Vite + React + TypeScrip
 Kept intentionally generic: no carrier names, insured names, policy numbers, customer
 documents, or proprietary rules.
 
-## Current state (verified 2026-07-23)
-- `npm run build` ✅ passes · `npm test` ✅ 46/46 passing
+## Current state (verified 2026-07-30)
+- `npm run build` ✅ passes · `npm test` ✅ 64/64 passing
+  - 46 validated (12 engine regression + 34 adversarial)
+  - 18 structural (extensionAp — unvalidated, ties to no real endorsement)
 - Calculation engine validated to the dollar against regression examples A, B, C, D1, D2.
 - App code: `src/App.tsx` (UI), `src/lib/calculations.ts` (math), `src/lib/calculations.test.ts` (tests)
 
@@ -37,6 +39,13 @@ npm run build    # type-check + production build
 1. **AP / RP endorsement tab** — BLOCKED until a sanitized real endorsement example is
    available to model against. Do not build the calc engine from assumed rules; that
    failure mode has already cost one full revision cycle.
+   - `src/lib/extensionAp.ts` exists as UNVALIDATED structural scaffolding and does NOT
+     unblock this item. It models extension AP two ways — straight pro-rata on time and
+     exposure-rated on incremental exposure — returns both plus their divergence, and
+     deliberately selects no method. It applies NO rounding, because the rounding
+     convention is unknown. It assumes exposure accrues straight-line across the term
+     (see `EXPOSURE_ACCRUAL_ASSUMPTION`), which is wrong for seasonal risks. Not wired to
+     the UI and not to be used for quoting until a real example validates it.
 2. **MEP coupling fix** — MEP eligibility must key off cancellation type, not the
    calculation-method preset.
 3. ~~**Input sanitizer**~~ **CLOSED (124199f)** — previously silently corrupted pasted
@@ -57,8 +66,12 @@ npm run build    # type-check + production build
    remains UNVALIDATED and must never be merged as-is. Documents copy deleted.
 
 ## Rules for agents working in this repo
-- The full test suite — 46 tests (12 engine regression + 34 adversarial input/integration) —
+- The validated suite — 46 tests (12 engine regression + 34 adversarial input/integration) —
   is the correctness floor. All must pass before any merge.
+- The 18 `extensionAp` structural tests are NOT part of that floor. They pin result shape,
+  null propagation, and the no-rounding rule — not dollar accuracy. A green extensionAp run
+  is not evidence the AP math is right; only a sanitized real endorsement example can
+  establish that.
 - If this file conflicts with `calculations.ts` + its passing tests, the code + tests win —
   then fix this file.
 - If a referenced file, branch, or example doesn't exist, STOP and report. Do not
