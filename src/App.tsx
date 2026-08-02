@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import ExtensionApTab from "./ExtensionApTab";
 import {
   buildCalculationNote,
   calculateReturnPremium,
@@ -40,6 +41,7 @@ export const initialFormState: FormState = {
 
 type FieldErrors = Partial<Record<keyof FormState, string>>;
 type CopyTarget = "summary" | "note";
+type TabId = "cancellation" | "extensionAp";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -120,6 +122,9 @@ export function validateForm(form: FormState): FieldErrors {
 function App() {
   const [form, setForm] = useState<FormState>(initialFormState);
   const [copied, setCopied] = useState<CopyTarget | null>(null);
+  // Tab one's form state lives here, not inside the panel, so switching tabs and back
+  // preserves everything the user typed.
+  const [activeTab, setActiveTab] = useState<TabId>("cancellation");
 
   const errors = useMemo(() => validateForm(form), [form]);
   const hasErrors = Object.keys(errors).length > 0;
@@ -184,345 +189,378 @@ function App() {
         </div>
       </header>
 
-      <section className="workspace" aria-label="Return premium calculator">
-        <form className="calculator-panel" onSubmit={(event) => event.preventDefault()} noValidate>
-          <div className="panel-heading">
-            <h2>Policy Inputs</h2>
-            <p>Use sanitized values for estimation and audit review.</p>
-          </div>
+      <div className="tablist" role="tablist" aria-label="Calculators">
+        <button
+          type="button"
+          role="tab"
+          id="tab-cancellation"
+          aria-selected={activeTab === "cancellation"}
+          aria-controls="panel-cancellation"
+          className={`tab${activeTab === "cancellation" ? " is-active" : ""}`}
+          onClick={() => setActiveTab("cancellation")}
+        >
+          Return premium
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-extension-ap"
+          aria-selected={activeTab === "extensionAp"}
+          aria-controls="panel-extension-ap"
+          className={`tab${activeTab === "extensionAp" ? " is-active" : ""}`}
+          onClick={() => setActiveTab("extensionAp")}
+        >
+          Extension AP
+        </button>
+      </div>
 
-          <div className="field-grid">
-            <Field
-              label="Policy effective date"
-              htmlFor="policy-effective-date"
-              error={errors.policyEffectiveDate}
-            >
-              <input
-                id="policy-effective-date"
-                type="date"
-                aria-invalid={Boolean(errors.policyEffectiveDate)}
-                value={form.policyEffectiveDate}
-                onChange={(event) => setField("policyEffectiveDate", event.target.value)}
-              />
-            </Field>
-
-            <Field
-              label="Policy expiration date"
-              htmlFor="policy-expiration-date"
-              error={errors.policyExpirationDate}
-            >
-              <input
-                id="policy-expiration-date"
-                type="date"
-                aria-invalid={Boolean(errors.policyExpirationDate)}
-                value={form.policyExpirationDate}
-                onChange={(event) => setField("policyExpirationDate", event.target.value)}
-              />
-            </Field>
-
-            <Field
-              label="Cancellation effective date"
-              htmlFor="cancellation-effective-date"
-              error={errors.cancellationEffectiveDate}
-            >
-              <input
-                id="cancellation-effective-date"
-                type="date"
-                aria-invalid={Boolean(errors.cancellationEffectiveDate)}
-                value={form.cancellationEffectiveDate}
-                onChange={(event) => setField("cancellationEffectiveDate", event.target.value)}
-              />
-            </Field>
-
-            <Field
-              label="Risk premium"
-              htmlFor="risk-premium"
-              error={errors.depositPremium}
-              hint="Use in-force risk premium at the cancellation date."
-            >
-              <input
-                id="risk-premium"
-                type="text"
-                inputMode="decimal"
-                aria-invalid={Boolean(errors.depositPremium)}
-                value={formatNumberInput(form.depositPremium)}
-                onChange={(event) =>
-                  setField("depositPremium", sanitizeNumericInput(event.target.value))
-                }
-              />
-            </Field>
-
-            <Field label="Cancellation type" htmlFor="cancellation-type">
-              <select
-                id="cancellation-type"
-                value={form.cancellationType}
-                onChange={(event) => {
-                  const nextType = event.target.value as CancellationType;
-                  setCopied(null);
-                  setForm((current) => ({
-                    ...current,
-                    cancellationType: nextType,
-                    // Auto-switch the method per the rules: carrier = pro-rata, insured/non-pay = short rate.
-                    preset: nextType === "company" ? "standard" : "minimumPremiumEndorsement"
-                  }));
-                }}
-              >
-                <option value="insured">Insured cancellation</option>
-                <option value="nonPayment">Non-payment</option>
-                <option value="company">Company cancellation</option>
-              </select>
-            </Field>
-
-            <Field
-              label="Calculation preset"
-              htmlFor="calculation-preset"
-              hint="Auto-set from cancellation type — override if needed."
-            >
-              <select
-                id="calculation-preset"
-                value={form.preset}
-                onChange={(event) => setField("preset", event.target.value as CalculationPreset)}
-              >
-                <option value="minimumPremiumEndorsement">Short rate (0.9 × pro rata)</option>
-                <option value="standard">Straight pro rata</option>
-              </select>
-            </Field>
-
-            <Field
-              label="Minimum earned premium %"
-              htmlFor="minimum-earned-premium"
-              error={errors.minimumEarnedPremiumPercent}
-            >
-              <input
-                id="minimum-earned-premium"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                inputMode="decimal"
-                aria-invalid={Boolean(errors.minimumEarnedPremiumPercent)}
-                value={form.minimumEarnedPremiumPercent}
-                onChange={(event) => setField("minimumEarnedPremiumPercent", event.target.value)}
-              />
-            </Field>
-
-            <Field label="TRIA (terrorism) tier" htmlFor="tria-tier" hint="Display only — not part of the return.">
-              <select
-                id="tria-tier"
-                value={form.triaTier}
-                onChange={(event) => setField("triaTier", event.target.value as TriaTier)}
-              >
-                <option value="none">No TRIA</option>
-                <option value="tier1">Tier 1 — 10%</option>
-                <option value="tier2">Tier 2 — 5%</option>
-                <option value="tier3">Tier 3 — 3%</option>
-              </select>
-            </Field>
-
-            <Field
-              label="Fees (optional)"
-              htmlFor="fees"
-              error={errors.fullyEarnedCharges}
-              hint="Excluded from the return unless enabled."
-            >
-              <input
-                id="fees"
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                aria-invalid={Boolean(errors.fullyEarnedCharges)}
-                value={form.fullyEarnedCharges}
-                onChange={(event) => setField("fullyEarnedCharges", event.target.value)}
-              />
-            </Field>
-          </div>
-        </form>
-
-        <aside className="results-panel" aria-label="Results">
-          <div className="panel-heading">
-            <h2>Results</h2>
-            <p>Calculated from the current policy inputs.</p>
-          </div>
-
-          {hasErrors ? (
-            <div className="results-placeholder" role="status">
-              Complete the highlighted fields to see the calculation.
-            </div>
-          ) : calculation.error ? (
-            <div className="error-message" role="alert">
-              {calculation.error}
-            </div>
-          ) : result ? (
-            <>
-              <dl className="inputs-recap">
-                <div>
-                  <dt>Policy term</dt>
-                  <dd>
-                    {form.policyEffectiveDate} → {form.policyExpirationDate}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Cancellation</dt>
-                  <dd>{form.cancellationEffectiveDate}</dd>
-                </div>
-                <div>
-                  <dt>Type</dt>
-                  <dd>{cancellationTypeLabel(result.cancellationType)}</dd>
-                </div>
-                <div>
-                  <dt>Risk premium</dt>
-                  <dd>{formatCurrency(result.depositPremium)}</dd>
-                </div>
-                <div>
-                  <dt>Minimum earned</dt>
-                  <dd>{result.minimumEarnedPremiumPercent}%</dd>
-                </div>
-                {result.triaAmount > 0 ? (
-                  <div>
-                    <dt>TRIA ({triaTierLabel(result.triaTier)})</dt>
-                    <dd>{formatCurrency(result.triaAmount)} (excl.)</dd>
-                  </div>
-                ) : null}
-                {result.fullyEarnedChargesRetained > 0 ? (
-                  <div>
-                    <dt>Fees</dt>
-                    <dd>{formatCurrency(result.fullyEarnedChargesRetained)} (excl.)</dd>
-                  </div>
-                ) : null}
-              </dl>
-
-              <div className="result-summary">
-                <span className={`method-badge ${result.appliesShortRate ? "shortrate" : "prorata"}`}>
-                  {result.appliesShortRate ? "Short Rate" : "Pro Rata"}
-                </span>
-                <p className="result-sentence">
-                  {capitalize(cancellationTypeLabel(result.cancellationType))}, {result.earnedDays} of{" "}
-                  {result.totalPolicyDays} days earned — estimated return premium{" "}
-                  <strong>{formatCurrency(result.finalReturnPremium)}</strong> (
-                  {result.appliesShortRate ? "short rate" : "straight pro rata"}, {controlsLabel(result)}
-                  ).
-                </p>
+      {activeTab === "cancellation" ? (
+        <div role="tabpanel" id="panel-cancellation" aria-labelledby="tab-cancellation">
+          <section className="workspace" aria-label="Return premium calculator">
+            <form className="calculator-panel" onSubmit={(event) => event.preventDefault()} noValidate>
+              <div className="panel-heading">
+                <h2>Policy Inputs</h2>
+                <p>Use sanitized values for estimation and audit review.</p>
               </div>
 
-              <div className="summary-total">
-                <span>Estimated return premium</span>
-                <strong>{formatCurrency(result.finalReturnPremium)}</strong>
-              </div>
+              <div className="field-grid">
+                <Field
+                  label="Policy effective date"
+                  htmlFor="policy-effective-date"
+                  error={errors.policyEffectiveDate}
+                >
+                  <input
+                    id="policy-effective-date"
+                    type="date"
+                    aria-invalid={Boolean(errors.policyEffectiveDate)}
+                    value={form.policyEffectiveDate}
+                    onChange={(event) => setField("policyEffectiveDate", event.target.value)}
+                  />
+                </Field>
 
-              <div className="breakdown">
-                <h3>How this was calculated</h3>
-                <ol className="breakdown-steps">
-                  <Step
-                    label="Policy term"
-                    value={`${result.totalPolicyDays} days`}
-                    note={`${form.policyEffectiveDate} → ${form.policyExpirationDate}`}
+                <Field
+                  label="Policy expiration date"
+                  htmlFor="policy-expiration-date"
+                  error={errors.policyExpirationDate}
+                >
+                  <input
+                    id="policy-expiration-date"
+                    type="date"
+                    aria-invalid={Boolean(errors.policyExpirationDate)}
+                    value={form.policyExpirationDate}
+                    onChange={(event) => setField("policyExpirationDate", event.target.value)}
                   />
-                  <Step
-                    label="Earned / unearned"
-                    value={`${result.earnedDays} / ${result.unearnedDays} days`}
+                </Field>
+
+                <Field
+                  label="Cancellation effective date"
+                  htmlFor="cancellation-effective-date"
+                  error={errors.cancellationEffectiveDate}
+                >
+                  <input
+                    id="cancellation-effective-date"
+                    type="date"
+                    aria-invalid={Boolean(errors.cancellationEffectiveDate)}
+                    value={form.cancellationEffectiveDate}
+                    onChange={(event) => setField("cancellationEffectiveDate", event.target.value)}
                   />
-                  <Step
-                    label="Risk / base premium"
-                    value={formatCurrency(result.depositPremium)}
-                    note="in-force at cancellation"
-                  />
-                  <Step
-                    label="Method"
-                    value={result.appliesShortRate ? "Short rate (0.9 × pro rata)" : "Straight pro rata"}
-                    note={cancellationTypeLabel(result.cancellationType)}
-                  />
-                  <Step
-                    label="Applicable factor"
-                    value={String(result.cancellationReturnFactor)}
-                    note={
-                      result.appliesShortRate
-                        ? "truncated 0.9 × pro rata (3 dp)"
-                        : "truncated pro rata (3 dp)"
+                </Field>
+
+                <Field
+                  label="Risk premium"
+                  htmlFor="risk-premium"
+                  error={errors.depositPremium}
+                  hint="Use in-force risk premium at the cancellation date."
+                >
+                  <input
+                    id="risk-premium"
+                    type="text"
+                    inputMode="decimal"
+                    aria-invalid={Boolean(errors.depositPremium)}
+                    value={formatNumberInput(form.depositPremium)}
+                    onChange={(event) =>
+                      setField("depositPremium", sanitizeNumericInput(event.target.value))
                     }
                   />
-                  <Step
-                    label="Gross return (base × factor)"
-                    value={formatCurrency(result.grossReturn)}
+                </Field>
+
+                <Field label="Cancellation type" htmlFor="cancellation-type">
+                  <select
+                    id="cancellation-type"
+                    value={form.cancellationType}
+                    onChange={(event) => {
+                      const nextType = event.target.value as CancellationType;
+                      setCopied(null);
+                      setForm((current) => ({
+                        ...current,
+                        cancellationType: nextType,
+                        // Auto-switch the method per the rules: carrier = pro-rata, insured/non-pay = short rate.
+                        preset: nextType === "company" ? "standard" : "minimumPremiumEndorsement"
+                      }));
+                    }}
+                  >
+                    <option value="insured">Insured cancellation</option>
+                    <option value="nonPayment">Non-payment</option>
+                    <option value="company">Company cancellation</option>
+                  </select>
+                </Field>
+
+                <Field
+                  label="Calculation preset"
+                  htmlFor="calculation-preset"
+                  hint="Auto-set from cancellation type — override if needed."
+                >
+                  <select
+                    id="calculation-preset"
+                    value={form.preset}
+                    onChange={(event) => setField("preset", event.target.value as CalculationPreset)}
+                  >
+                    <option value="minimumPremiumEndorsement">Short rate (0.9 × pro rata)</option>
+                    <option value="standard">Straight pro rata</option>
+                  </select>
+                </Field>
+
+                <Field
+                  label="Minimum earned premium %"
+                  htmlFor="minimum-earned-premium"
+                  error={errors.minimumEarnedPremiumPercent}
+                >
+                  <input
+                    id="minimum-earned-premium"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    inputMode="decimal"
+                    aria-invalid={Boolean(errors.minimumEarnedPremiumPercent)}
+                    value={form.minimumEarnedPremiumPercent}
+                    onChange={(event) => setField("minimumEarnedPremiumPercent", event.target.value)}
                   />
-                  {result.minimumApplies ? (
-                    <>
+                </Field>
+
+                <Field label="TRIA (terrorism) tier" htmlFor="tria-tier" hint="Display only — not part of the return.">
+                  <select
+                    id="tria-tier"
+                    value={form.triaTier}
+                    onChange={(event) => setField("triaTier", event.target.value as TriaTier)}
+                  >
+                    <option value="none">No TRIA</option>
+                    <option value="tier1">Tier 1 — 10%</option>
+                    <option value="tier2">Tier 2 — 5%</option>
+                    <option value="tier3">Tier 3 — 3%</option>
+                  </select>
+                </Field>
+
+                <Field
+                  label="Fees (optional)"
+                  htmlFor="fees"
+                  error={errors.fullyEarnedCharges}
+                  hint="Excluded from the return unless enabled."
+                >
+                  <input
+                    id="fees"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    aria-invalid={Boolean(errors.fullyEarnedCharges)}
+                    value={form.fullyEarnedCharges}
+                    onChange={(event) => setField("fullyEarnedCharges", event.target.value)}
+                  />
+                </Field>
+              </div>
+            </form>
+
+            <aside className="results-panel" aria-label="Results">
+              <div className="panel-heading">
+                <h2>Results</h2>
+                <p>Calculated from the current policy inputs.</p>
+              </div>
+
+              {hasErrors ? (
+                <div className="results-placeholder" role="status">
+                  Complete the highlighted fields to see the calculation.
+                </div>
+              ) : calculation.error ? (
+                <div className="error-message" role="alert">
+                  {calculation.error}
+                </div>
+              ) : result ? (
+                <>
+                  <dl className="inputs-recap">
+                    <div>
+                      <dt>Policy term</dt>
+                      <dd>
+                        {form.policyEffectiveDate} → {form.policyExpirationDate}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Cancellation</dt>
+                      <dd>{form.cancellationEffectiveDate}</dd>
+                    </div>
+                    <div>
+                      <dt>Type</dt>
+                      <dd>{cancellationTypeLabel(result.cancellationType)}</dd>
+                    </div>
+                    <div>
+                      <dt>Risk premium</dt>
+                      <dd>{formatCurrency(result.depositPremium)}</dd>
+                    </div>
+                    <div>
+                      <dt>Minimum earned</dt>
+                      <dd>{result.minimumEarnedPremiumPercent}%</dd>
+                    </div>
+                    {result.triaAmount > 0 ? (
+                      <div>
+                        <dt>TRIA ({triaTierLabel(result.triaTier)})</dt>
+                        <dd>{formatCurrency(result.triaAmount)} (excl.)</dd>
+                      </div>
+                    ) : null}
+                    {result.fullyEarnedChargesRetained > 0 ? (
+                      <div>
+                        <dt>Fees</dt>
+                        <dd>{formatCurrency(result.fullyEarnedChargesRetained)} (excl.)</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+
+                  <div className="result-summary">
+                    <span className={`method-badge ${result.appliesShortRate ? "shortrate" : "prorata"}`}>
+                      {result.appliesShortRate ? "Short Rate" : "Pro Rata"}
+                    </span>
+                    <p className="result-sentence">
+                      {capitalize(cancellationTypeLabel(result.cancellationType))}, {result.earnedDays} of{" "}
+                      {result.totalPolicyDays} days earned — estimated return premium{" "}
+                      <strong>{formatCurrency(result.finalReturnPremium)}</strong> (
+                      {result.appliesShortRate ? "short rate" : "straight pro rata"}, {controlsLabel(result)}
+                      ).
+                    </p>
+                  </div>
+
+                  <div className="summary-total">
+                    <span>Estimated return premium</span>
+                    <strong>{formatCurrency(result.finalReturnPremium)}</strong>
+                  </div>
+
+                  <div className="breakdown">
+                    <h3>How this was calculated</h3>
+                    <ol className="breakdown-steps">
                       <Step
-                        label="Retained via factor"
-                        value={formatCurrency(result.retainedViaFactor)}
+                        label="Policy term"
+                        value={`${result.totalPolicyDays} days`}
+                        note={`${form.policyEffectiveDate} → ${form.policyExpirationDate}`}
                       />
                       <Step
-                        label={`Retained via minimum (${result.minimumEarnedPremiumPercent}%)`}
-                        value={formatCurrency(result.retainedViaMinimum)}
+                        label="Earned / unearned"
+                        value={`${result.earnedDays} / ${result.unearnedDays} days`}
                       />
                       <Step
-                        label="Controls"
-                        value={result.minimumBinds ? "Minimum earned" : "Cancellation factor"}
+                        label="Risk / base premium"
+                        value={formatCurrency(result.depositPremium)}
+                        note="in-force at cancellation"
+                      />
+                      <Step
+                        label="Method"
+                        value={result.appliesShortRate ? "Short rate (0.9 × pro rata)" : "Straight pro rata"}
+                        note={cancellationTypeLabel(result.cancellationType)}
+                      />
+                      <Step
+                        label="Applicable factor"
+                        value={String(result.cancellationReturnFactor)}
                         note={
-                          result.minimumBinds
-                            ? "minimum earned premium retains more"
-                            : "cancellation factor retains more"
+                          result.appliesShortRate
+                            ? "truncated 0.9 × pro rata (3 dp)"
+                            : "truncated pro rata (3 dp)"
                         }
-                        highlight
                       />
-                    </>
-                  ) : (
-                    <Step
-                      label="Minimum earned"
-                      value="Not applied"
-                      note="full pro-rata — no cap on a carrier cancellation"
-                    />
-                  )}
-                  {result.triaAmount > 0 ? (
-                    <Step
-                      label={`TRIA retained (${triaTierLabel(result.triaTier)})`}
-                      value={formatCurrency(result.triaAmount)}
-                      note="display only — not in the return"
-                    />
-                  ) : null}
-                  {result.fullyEarnedChargesRetained > 0 ? (
-                    <Step
-                      label="Fees retained"
-                      value={formatCurrency(result.fullyEarnedChargesRetained)}
-                      note="excluded from the return"
-                    />
-                  ) : null}
-                  <Step
-                    label="Estimated return premium"
-                    value={formatCurrency(result.finalReturnPremium)}
-                    isFinal
-                  />
-                </ol>
-              </div>
+                      <Step
+                        label="Gross return (base × factor)"
+                        value={formatCurrency(result.grossReturn)}
+                      />
+                      {result.minimumApplies ? (
+                        <>
+                          <Step
+                            label="Retained via factor"
+                            value={formatCurrency(result.retainedViaFactor)}
+                          />
+                          <Step
+                            label={`Retained via minimum (${result.minimumEarnedPremiumPercent}%)`}
+                            value={formatCurrency(result.retainedViaMinimum)}
+                          />
+                          <Step
+                            label="Controls"
+                            value={result.minimumBinds ? "Minimum earned" : "Cancellation factor"}
+                            note={
+                              result.minimumBinds
+                                ? "minimum earned premium retains more"
+                                : "cancellation factor retains more"
+                            }
+                            highlight
+                          />
+                        </>
+                      ) : (
+                        <Step
+                          label="Minimum earned"
+                          value="Not applied"
+                          note="full pro-rata — no cap on a carrier cancellation"
+                        />
+                      )}
+                      {result.triaAmount > 0 ? (
+                        <Step
+                          label={`TRIA retained (${triaTierLabel(result.triaTier)})`}
+                          value={formatCurrency(result.triaAmount)}
+                          note="display only — not in the return"
+                        />
+                      ) : null}
+                      {result.fullyEarnedChargesRetained > 0 ? (
+                        <Step
+                          label="Fees retained"
+                          value={formatCurrency(result.fullyEarnedChargesRetained)}
+                          note="excluded from the return"
+                        />
+                      ) : null}
+                      <Step
+                        label="Estimated return premium"
+                        value={formatCurrency(result.finalReturnPremium)}
+                        isFinal
+                      />
+                    </ol>
+                  </div>
 
-              <div className="results-actions">
-                <button type="button" className="btn-primary" onClick={() => window.print()}>
-                  Print / Save PDF
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => copyText(summaryText, "summary")}
-                >
-                  {copied === "summary" ? "Copied" : "Copy summary"}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => copyText(calculation.note, "note")}
-                >
-                  {copied === "note" ? "Copied" : "Copy note"}
-                </button>
-              </div>
+                  <div className="results-actions">
+                    <button type="button" className="btn-primary" onClick={() => window.print()}>
+                      Print / Save PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => copyText(summaryText, "summary")}
+                    >
+                      {copied === "summary" ? "Copied" : "Copy summary"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => copyText(calculation.note, "note")}
+                    >
+                      {copied === "note" ? "Copied" : "Copy note"}
+                    </button>
+                  </div>
 
-              <details className="note-block">
-                <summary>Calculation note</summary>
-                <textarea readOnly value={calculation.note} aria-label="Calculation note" />
-              </details>
-            </>
-          ) : null}
-        </aside>
-      </section>
+                  <details className="note-block">
+                    <summary>Calculation note</summary>
+                    <textarea readOnly value={calculation.note} aria-label="Calculation note" />
+                  </details>
+                </>
+              ) : null}
+            </aside>
+          </section>
+        </div>
+      ) : (
+        <div role="tabpanel" id="panel-extension-ap" aria-labelledby="tab-extension-ap">
+          <ExtensionApTab />
+        </div>
+      )}
 
       <p className="disclaimer">{DISCLAIMER}</p>
     </main>
@@ -537,7 +575,7 @@ interface FieldProps {
   hint?: string;
 }
 
-function Field({ children, htmlFor, label, error, hint }: FieldProps) {
+export function Field({ children, htmlFor, label, error, hint }: FieldProps) {
   return (
     <label className={`field${error ? " has-error" : ""}`} htmlFor={htmlFor}>
       <span>{label}</span>
@@ -561,7 +599,7 @@ interface StepProps {
   isFinal?: boolean;
 }
 
-function Step({ label, value, note, highlight, isFinal }: StepProps) {
+export function Step({ label, value, note, highlight, isFinal }: StepProps) {
   return (
     <li
       className={`breakdown-step${highlight ? " is-highlight" : ""}${isFinal ? " is-final" : ""}`}

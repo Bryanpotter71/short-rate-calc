@@ -44,8 +44,17 @@ npm run build    # type-check + production build
      exposure-rated on incremental exposure — returns both plus their divergence, and
      deliberately selects no method. It applies NO rounding, because the rounding
      convention is unknown. It assumes exposure accrues straight-line across the term
-     (see `EXPOSURE_ACCRUAL_ASSUMPTION`), which is wrong for seasonal risks. Not wired to
-     the UI and not to be used for quoting until a real example validates it.
+     (see `EXPOSURE_ACCRUAL_ASSUMPTION`), which is wrong for seasonal risks. Not to be
+     used for quoting until a real example validates it.
+   - **Wired to the UI 2026-08-01** as a second tab (`src/ExtensionApTab.tsx`), behind a
+     visible proof-of-concept banner. This changed the WIRING, not the VALIDATION — the
+     item stays BLOCKED. The tab renders both candidate methods at equal weight plus
+     their divergence, selects no method, applies no rounding convention, and is not a
+     quoting surface. It does not substitute for the sanitized real endorsement example
+     this item is blocked on.
+   - The tab has NO automated coverage: `environment: "node"` with no jsdom and no
+     `@testing-library/*`, so nothing renders `ExtensionApTab.tsx` in CI. Changes to it
+     must be verified by hand — a green `npm test` says nothing about that file.
 2. **MEP coupling fix** — MEP eligibility must key off cancellation type, not the
    calculation-method preset.
 3. ~~**Input sanitizer**~~ **CLOSED (124199f)** — previously silently corrupted pasted
